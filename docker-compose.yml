@@ -1,0 +1,78 @@
+name: schedule-bot
+
+services:
+  # PostgreSQL база данных
+  postgres:
+    image: postgres:15-alpine
+    container_name: schedule_postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-schedule_bot}
+      POSTGRES_USER: ${DB_USER:-schedule_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-schedule_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis для кеширования
+  redis:
+    image: redis:7-alpine
+    container_name: schedule_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Студенческий бот
+  student_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: schedule_student_bot
+    command: python -m bots.student_bot.main
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # Админский бот
+  admin_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: schedule_admin_bot
+    command: python -m bots.admin_bot.main
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+      - ./credentials.json:/app/credentials.json:ro
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
